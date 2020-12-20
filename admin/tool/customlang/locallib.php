@@ -395,6 +395,321 @@ EOF
         }
         return $data;
     }
+
+    /**
+     * Replaces string that contains (example) {...} to a string where that {...} is replaced with a md5 hash value.
+     *
+     * @param string $subject The string you want to replace {...}  with hash
+     * @param string $openingchar Single character that indicates opening of group, default '('
+     * @param string $closingchar Single character that indicates closing of group, default ')'
+     * @return array Returns array where first element is the string replaced with hash values.
+     * The second element is an array $hashvalues[$hashkey] = $value.
+     */
+    public static function replace_string_group_with_hash($subject, $openingchar = '{', $closingchar = '}') {
+        if ($openingchar == $closingchar) {
+            throw new LogicException("Opening character '$openingchar' cannot be the same as closing character.");
+        }
+        $subjectlen = strlen($subject);
+        $bracketdepth = 0;
+        $hashvalues = [];
+
+        for ($i = 0; $i < $subjectlen; $i++) {
+            if ($subject[$i] == $openingchar) {
+
+                if (!isset($opensymbolpos)) {
+                    $opensymbolpos = $i;
+                }
+
+                $bracketdepth++;
+            } else if ($subject[$i] == $closingchar) {
+
+                if ($bracketdepth == 1) {
+                    // Found matching brackets.
+                    // Get the string of this match.
+                    $negoffset = ($subjectlen - $i - 1) * -1;
+                    if ($negoffset == 0) {
+                        // Negative offset 0? Then don't include param.
+                        $value = substr($subject, $opensymbolpos);
+                    } else {
+                        $value = substr($subject, $opensymbolpos, $negoffset);
+                    }
+                    $key = md5($value);
+                    $valuelength = $i - $opensymbolpos;
+
+                    // Store in array.
+                    $hashvalues[$key] = $value;
+
+                    if ( $opensymbolpos == 0 ) {
+                        // Is 0? Then just save empty string.
+                        $head = "";
+                    } else {
+                        $head = substr($subject, 0, $opensymbolpos);
+                    }
+
+                    // Calculate param for substr().
+                    $tailsubstrparam = $i + 1 - $subjectlen;
+                    if ( $tailsubstrparam == 0 ) {
+                        // Is param 0? Then just save empty string.
+                        $tail = "";
+                    } else {
+                        $tail = substr($subject, $i + 1 - $subjectlen);
+                    }
+
+                    // Now replace the string with hash.
+                    $subject = $head . $key . $tail;
+                    $subjectlen = strlen($subject);
+
+                    // Get the diffrence in length of md5(32) and the $valuelength.
+                    $lengthdiff = 32 - $valuelength;
+                    // Set new position for $i.
+                    $i = $i + $lengthdiff;
+
+                    unset($opensymbolpos);
+                }
+
+                if ($bracketdepth > 0) {
+                    $bracketdepth--;
+                }
+            }
+        }
+        return [$subject, $hashvalues];
+    }
+
+    /**
+     * Replaces hash values in string back to value given a array that has $array[$key] = $value
+     *
+     * @param string $subject
+     * @param array $hashvalues
+     * @return string
+     */
+    public static function replace_hash_to_string(string $subject, array $hashvalues) {
+        foreach ($hashvalues as $search => $replace) {
+            $subject = str_replace($search, $replace, $subject);
+        }
+        return $subject;
+    }
+
+    /**
+     * This function return True when a search given in a subject is safe to be replaced
+     *
+     * @param string $subject
+     * @param string $search
+     * @param string $prefix
+     * @param string $suffix
+     * @return boolean
+     */
+    public static function is_safe_to_replace(string $subject, string $search, string $prefix = null, string $suffix = null): bool {
+        if (strpos($subject, '{') !== false && strpos($subject, '}') !== false) {
+            // Subject contains { or } ? Then it's considered unsafe.
+            return false;
+        }
+
+        // Find the position(s) of the search in in subject.
+        $offset = 0;
+        while (($pos = strpos($subject, $search, $offset)) !== false) {
+            $posistions[] = $pos;
+            $offset = $pos + 1;
+        }
+
+        // Check that the position in front and behind of the search is accepted.
+        $acceptedstart = $acceptedend = [' ', '', "'", ','];
+        $searchlen = strlen($search);
+        $subjectlen = strlen($subject);
+
+        foreach ($posistions as $pos) {
+            $offset = $pos - 1;
+
+            // If the offset of this postion has a prefix check if accepted.
+            if ($offset >= 0) {
+                // Is the this offset not in accepted array?
+                if (!in_array($subject[$offset], $acceptedstart)) {
+                    if ($prefix != null) {
+                        $prefixlen = strlen($prefix);
+                        $start = $pos - $prefixlen;
+                        $end = $pos + $searchlen;
+
+                        if ($start < 0) {
+                            return false;
+                        }
+
+                        $haystack = self::str_slice($subject, "$start:$end");
+                        if (!self::check_prefix($haystack, $prefix)) {
+                            return false;
+                        }
+                    }
+                }
+            }
+
+            $offset = $pos + $searchlen;
+            // If offset is smaller than subject length and char is not accepted?
+            if ($offset <= $subjectlen - 1  && !in_array($subject[$offset], $acceptedend)) {
+                if (ord($subject[$offset]) == 10) {
+                    continue;
+                }
+
+                // Is the trailing character of the search a '.'?
+                if ($subject[$offset] == '.') {
+                    if ($offset == $subjectlen - 1) {
+                        // Is this offset last character subject? Then continue.
+                        continue;
+                    }
+                    if ($subject[$offset + 1] == " ") {
+                        // Is the character after this '.' a ' '? Then continue.
+                        continue;
+                    }
+                }
+
+                // Is the trailing character of the search a '\'?
+                if ($subject[$offset] == '\\' && isset($subject[$offset + 1])) {
+                    // Is there a character n or r after that '\'?
+                    $offset++;
+                    if ($subject[$offset] == 'r' or $subject[$offset] == 'n') {
+                        continue;
+                    }
+                }
+
+                // Has a suffix been set?
+                if ($suffix != null) {
+
+                    $suffixlen = strlen($suffix);
+
+                    $start = $pos;
+                    $end = $pos + $searchlen + $suffixlen;
+
+
+
+                    if ($end > $subjectlen) {
+                        return false;
+                    }
+
+                    $haystack = self::str_slice($subject, "$start:$end");
+
+
+                    if (self::check_suffix($haystack, $suffix)) {
+                        continue;
+                    }
+                }
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * This function checks if a string starts with a given needle and return a boolean.
+     *
+     * @param string $haystack
+     * @param string $needle
+     * @return void
+     */
+    public static function check_prefix(string $haystack, string $needle) {
+        $length = strlen( $needle );
+        return substr( $haystack, 0, $length ) === $needle;
+    }
+
+
+    /**
+     * This function checks if a string ends with a given needle and returns a boolean.
+     *
+     * @param string $haystack
+     * @param string $needle
+     * @return bool
+     */
+    public static function check_suffix(string $haystack, string $needle ) {
+        $length = strlen( $needle );
+        if (!$length) {
+            return true;
+        }
+        return substr( $haystack, -$length) === $needle;
+    }
+
+    /**
+     * This function allows you to get a substring by using a slice index used in the Python world. The following function emulates
+     * basic Python string slice behaviour. Now only string is supported.
+     *
+     * @param string $input
+     * @param string $slice
+     * @return string
+     */
+    public static function str_slice (string $input, string $slice) {
+        $arg = explode(':', $slice);
+        $start = intval($arg[0]);
+        if ($start < 0) {
+            $start += strlen($input);
+        }
+        if (count($arg) === 1) {
+            return substr($input, $start, 1);
+        }
+        if (trim($arg[1]) === '') {
+            return substr($input, $start);
+        }
+        $end = intval($arg[1]);
+        if ($end < 0) {
+            $end += strlen($input);
+        }
+        return substr($input, $start, $end - $start);
+    }
+
+    /**
+     * Returns a string where the matches to a regex have been replaced with the matches themself with tags,
+     *  or the optional replacement with tags.
+     *
+     * @param string $subject
+     * @param string $pattern
+     * @param string $replace
+     * @param string $tagopen
+     * @param string $tagclose
+     * @return string
+     */
+    public static function get_highlighted_regex_search_subject(
+        $subject, $pattern, $replace = null, $tagopen = '<colour:white><bgcolour:red>', $tagclose = '<colour:red>'
+    ) {
+        preg_match_all($pattern, $subject, $matches, PREG_OFFSET_CAPTURE);
+        if (!isset($matches[0])) {
+            return $subject;
+        }
+
+        $subjectlen = strlen($subject);
+        $offsetdiff = 0;
+        foreach ($matches[0] as &$match) {
+            // Foreach match add some helpfull variables.
+            $match['org'] = $match[0];
+            if ($replace == null) {
+                $match['repl'] = $tagopen.$match[0].$tagclose;
+            } else {
+                $match['repl'] = $tagopen.$replace.$tagclose;
+            }
+            $match['len']['org'] = strlen($match[0]);
+            $match['len']['repl'] = strlen($match['repl']);
+            $match['offset']['org']['start'] = $match[1] + $offsetdiff;
+            $match['offset']['org']['end'] = $match[1] + $match['len']['org'] - 1 + $offsetdiff;
+            $match['offset']['repl']['start'] = $match['offset']['org']['start'] + $offsetdiff;
+            $match['offset']['repl']['end'] = $match[1] + $match['len']['repl'] - 1 + $offsetdiff;
+            $offsetdiff += $match['offset']['repl']['end'] - $match['offset']['org']['end'];
+
+            // Now replace this match in the subject.
+            if ( $match['offset']['org']['start'] == 0 ) {
+                // Is 0? Then just save empty string.
+                $head = "";
+            } else {
+                $head = substr($subject, 0, $match['offset']['org']['start']);
+            }
+
+            $tailsubstrparam = $match['offset']['org']['end'] + 1 - $subjectlen;
+            if ( $tailsubstrparam == 0 ) {
+                // Is param 0? Then just save empty string.
+                $tail = "";
+            } else {
+                $tail = substr($subject, $tailsubstrparam);
+            }
+            $match['head'] = $head;
+            $match['tail'] = $tail;
+            $subject = $head.$match['repl'].$tail;
+            $subjectlen = strlen($subject);
+        }
+
+        return $subject;
+    }
 }
 
 /**
