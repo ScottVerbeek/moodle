@@ -262,6 +262,8 @@ function cli_ansi_format(string $message): string {
     $replacements = [
         "<newline>" => "\n",
         "<bell>" => "\007",
+        "<bold>" => "\033[1m",
+        "<normal>" => "\033[0m",
 
         // Cursor movement: https://www.tldp.org/HOWTO/Bash-Prompt-HOWTO/x361.html.
         "<cursor:save>"     => "\033[s",
