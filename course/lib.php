@@ -1305,11 +1305,20 @@ function course_module_bulk_update_calendar_events($modulename, $courseid = 0) {
 
     $instances = null;
     if ($courseid) {
-        if (!$instances = $DB->get_records($modulename, array('course' => $courseid))) {
+        $sql = "SELECT *
+                  FROM {?} m
+                  JOIN {course} c
+                    ON m.course = c.id
+                 WHERE m.course = ?";
+        if (!$instances = $DB->get_records_sql($sql, [$modulename, $courseid])) {
             return false;
         }
     } else {
-        if (!$instances = $DB->get_records($modulename)) {
+        $sql = "SELECT *
+                  FROM {?} m
+                  JOIN {course} c
+                    ON m.course = c.id";
+        if (!$instances = $DB->get_records_sql($sql, [$modulename])) {
             return false;
         }
     }
