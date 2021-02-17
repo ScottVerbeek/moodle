@@ -339,6 +339,10 @@ class navigation_node implements renderable {
         if ($icon!==null) {
             $itemarray['icon'] = $icon;
         }
+        // If key is null set it to a unique value.
+        if ($key == null) {
+            $key = uniqid('key_');
+        }
         // Set the key
         $itemarray['key'] = $key;
         // Construct and return
