@@ -1177,6 +1177,164 @@ class core_files_file_storage_testcase extends advanced_testcase {
     }
 
     /**
+     * Tests that move_area_files_to_new_context can handle
+     * ... existing files and same old/new area calls.
+     *
+     * @covers ::move_area_files_to_new_context
+     */
+    public function test_move_area_files_to_new_context_when_files_already_exist_there() {
+        global $DB;
+        $this->resetAfterTest();
+
+        // Step (1) Setup a file, which was moved from Page1 to Page2.
+        // Create a course with a page resource.
+        $course = $this->getDataGenerator()->create_course();
+        $page1 = $this->getDataGenerator()->create_module('page', array('course' => $course->id));
+        $page1context = context_module::instance($page1->cmid);
+
+        // Add a file to the page.
+        $fs = get_file_storage();
+        $filerecord = array(
+            'contextid' => $page1context->id,
+            'component' => 'mod_page',
+            'filearea'  => 'content',
+            'itemid'    => 0,
+            'filepath'  => '/',
+            'filename'  => 'unit-test-file.txt',
+        );
+
+        $originalfile = $fs->create_file_from_string($filerecord, 'Test content');
+        $this->assertInstanceOf('stored_file', $originalfile);
+
+        $pagefiles = $fs->get_area_files($page1context->id, 'mod_page', 'content', 0, 'sortorder', false);
+        $originalfilerecord = $DB->get_record('files', array('id' => $originalfile->get_id()));
+        $filerecords = $DB->get_records('files', array('component' => 'mod_page', 'filearea' => 'content'));
+        // Should be one file in filearea.
+        $this->assertFalse($fs->is_area_empty($page1context->id, 'mod_page', 'content'));
+
+        // Create a new page.
+        $page2 = $this->getDataGenerator()->create_module('page', array('course' => $course->id));
+        $page2context = context_module::instance($page2->cmid);
+
+        // Newly created page area is empty.
+        $this->assertTrue($fs->is_area_empty($page2context->id, 'mod_page', 'content'));
+
+        // Move the files.
+        $fs->move_area_files_to_new_context($page1context->id, $page2context->id, 'mod_page', 'content');
+
+        // Step (2) Confirm expected current state.
+        $page2files = $fs->get_area_files($page2context->id, 'mod_page', 'content', 0, 'sortorder', false);
+        $movedfile = reset($page2files);
+
+        // Page2 is not empty, Page1 is empty.
+        $this->assertTrue($fs->is_area_empty($page1context->id, 'mod_page', 'content'));
+        $this->assertFalse($fs->is_area_empty($page2context->id, 'mod_page', 'content'));
+
+        // Check that the moved file has the original contenthash.
+        $this->assertEquals($originalfile->get_contenthash(), $movedfile->get_contenthash());
+
+        // Step (3) Re-create the original file record in Page1 filearea.
+        // Reinsert original file record.
+        $filerecords = $DB->get_records('files', array('component' => 'mod_page', 'filearea' => 'content'));
+        $filerecordcount = count($filerecords);
+        $newid = $DB->insert_record('files', $originalfilerecord);
+        $originalfilerecord->id = $newid;
+        $filerecords = $DB->get_records('files', array('component' => 'mod_page', 'filearea' => 'content'));
+        // Check original file record added successfully.
+        $this->assertEquals($filerecordcount + 1, count($filerecords));
+
+        $pagefiles = $fs->get_area_files($page1context->id, 'mod_page', 'content', 0, 'sortorder', false);
+        // Check filearea for Page1 is not empty.
+        $this->assertFalse($fs->is_area_empty($page1context->id, 'mod_page', 'content'));
+
+        // Step (4) Attempt to move from Page2 file area back to Page1.
+        // Move the files.
+        $fs->move_area_files_to_new_context($page2context->id, $page1context->id, 'mod_page', 'content');
+        $expecteddebugmessage = "Warning: Unexpected Identical Existing File (Skipping move):".PHP_EOL
+                                ."file_storage.php move_area_files_to_new_context() but file already exists in new context".PHP_EOL
+                                ."filename: unit-test-file.txt, filepath: /, "
+                                ."component: mod_page, filearea: content, "
+                                ."oldcontext:$page2context->id, newcontext:$page1context->id, itemid: ";
+        $this->assertDebuggingCalled($expecteddebugmessage, DEBUG_DEVELOPER);
+
+        // Step (5) Confirm that it has been replaced.
+        $page1files = $fs->get_area_files($page1context->id, 'mod_page', 'content', 0, 'sortorder', false);
+        $newmovedfile = reset($page1files);
+        // Check that the newmovedfile and originalfile have the same contenthash and pathnamehash.
+        $this->assertEquals($newmovedfile->get_contenthash(),  $originalfile->get_contenthash());
+        $this->assertEquals($newmovedfile->get_pathnamehash(), $originalfile->get_pathnamehash());
+
+        // The Page2 filearea file is empty and Page1 filearea still has a file.
+        $this->assertTrue($fs->is_area_empty($page2context->id, 'mod_page', 'content'));
+        $this->assertFalse($fs->is_area_empty($page1context->id, 'mod_page', 'content'));
+
+        // Step (6) Repeat steps (1)-(5) but with file record with different contenthash.
+        // Move the files & check move was successful.
+        $fs->move_area_files_to_new_context($page1context->id, $page2context->id, 'mod_page', 'content');
+        $this->assertTrue($fs->is_area_empty($page1context->id, 'mod_page', 'content'));
+        $this->assertFalse($fs->is_area_empty($page2context->id, 'mod_page', 'content'));
+        // Reinsert original file record, with different contenthash value & check insertion successful.
+        $filerecords = $DB->get_records('files', array('component' => 'mod_page', 'filearea' => 'content'));
+        $filerecordcount = count($filerecords);
+        $newid = $DB->insert_record('files', $originalfilerecord);
+        $originalfilerecord->id = $newid;
+        // Modify contenthash value so that it's different to the original file's contenthash.
+        $differentcontenthash = '2'.substr($originalfilerecord->contenthash, 1);
+        $DB->set_field('files', 'contenthash', $differentcontenthash, array('id' => $originalfilerecord->id));
+        $filerecords = $DB->get_records('files', array('component' => 'mod_page', 'filearea' => 'content'));
+        $this->assertEquals($filerecordcount + 1, count($filerecords));
+        $this->assertFalse($fs->is_area_empty($page1context->id, 'mod_page', 'content'));
+        // Move the files (but existing file record is non-identical contenthash).
+        $fs->move_area_files_to_new_context($page2context->id, $page1context->id, 'mod_page', 'content');
+        $expecteddebugmessage = "Warning: Unexpected Existing File (Deleting existing record and replacing):".PHP_EOL
+                                ."file_storage.php move_area_files_to_new_context() but file already exists in new context".PHP_EOL
+                                ."filename: unit-test-file.txt, filepath: /, "
+                                ."component: mod_page, filearea: content, "
+                                ."oldcontext:$page2context->id, newcontext:$page1context->id, itemid: ";
+        $this->assertDebuggingCalled($expecteddebugmessage, DEBUG_DEVELOPER);
+        // Check that the moved file has the original contenthash.
+        $page1files = $fs->get_area_files($page1context->id, 'mod_page', 'content', 0, 'sortorder', false);
+        $movedfile = reset($page1files);
+        $this->assertEquals($originalfile->get_contenthash(), $movedfile->get_contenthash());
+
+        // Step (7) Attempt to Overwrite filearea Page1 file over itself.
+        // Check that the file remains.
+        $this->assertFalse($fs->is_area_empty($page1context->id, 'mod_page', 'content'));
+        $totalfilecount   = $DB->count_records('files', array('component' => 'mod_page', 'filearea' => 'content'));
+        $filerecords      = $DB->get_records('files',
+                                           array('contenthash'  => $originalfile->get_contenthash(),
+                                                 'pathnamehash' => $originalfile->get_pathnamehash()
+        ));
+        $filerecordcount  = count($filerecords);
+        // Confirm there is only one record with the original file's contenthash/pathname.
+        $this->assertEquals(1, $filerecordcount);
+        $filerecord = reset($filerecords);
+        $fs->move_area_files_to_new_context($page1context->id, $page1context->id, 'mod_page', 'content');
+
+        // Step (8) Confirm that the file was not modified.
+        // Check Number of file records are the same.
+        $this->assertEquals($totalfilecount, $DB->count_records('files',
+                                                                array('component' => 'mod_page',
+                                                                      'filearea'  => 'content')
+        ));
+        // Check No Duplicates made.
+        $postfilerecords = $DB->get_records('files',
+                                            array('contenthash'  => $originalfile->get_contenthash(),
+                                                  'pathnamehash' => $originalfile->get_pathnamehash()
+        ));
+        $postfilerecordcount  = count($filerecords);
+        $this->assertEquals($filerecordcount, $postfilerecordcount);
+        $postfilerecord = reset($postfilerecords);
+        // Check the file area is still not empty.
+        $this->assertFalse($fs->is_area_empty($page1context->id, 'mod_page', 'content'));
+        // Check timestamps.
+        $this->assertEquals($filerecord->timecreated,  $postfilerecord->timecreated);
+        $this->assertEquals($filerecord->timemodified, $postfilerecord->timemodified);
+        // Check ids.
+        $this->assertEquals($filerecord->id, $postfilerecord->id);
+    }
+
+    /**
      * Tests for convert_image.
      *
      * @covers ::convert_image
