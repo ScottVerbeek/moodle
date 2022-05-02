@@ -953,6 +953,12 @@ class file_storage {
      * @return int the number of files moved, for information.
      */
     public function move_area_files_to_new_context($oldcontextid, $newcontextid, $component, $filearea, $itemid = false) {
+
+        // Skip if oldcontextid and newcontextid are the same.
+        if ($oldcontextid === $newcontextid) {
+            return 0;
+        }
+
         // Note, this code is based on some code that Petr wrote in
         // forum_move_attachments in mod/forum/lib.php. I moved it here because
         // I needed it in the question code too.
@@ -962,7 +968,48 @@ class file_storage {
         foreach ($oldfiles as $oldfile) {
             $filerecord = new stdClass();
             $filerecord->contextid = $newcontextid;
-            $this->create_file_from_storedfile($filerecord, $oldfile);
+
+            // Check if the file record already exists in new area.
+            // If it exists and is the same file, don't modify the file in the new area.
+            // If the file in the new area isn't the same, delete and replace it.
+            $newfilepath = $oldfile->get_filepath();
+            $newfilename = $oldfile->get_filename();
+            $itemidvalue = !$itemid ? "0" : $itemid;
+            if ($existingfile = $this->get_file($newcontextid, $component, $filearea, $itemidvalue,
+                                                $newfilepath,  $newfilename)) {
+
+                // Delete and replace record if they DON'T have the same content hash.
+                if ($existingfile->get_contenthash() !== $oldfile->get_contenthash()) {
+                    debugging("Warning: Unexpected Existing File (Deleting existing record and replacing):".PHP_EOL
+                              ."file_storage.php move_area_files_to_new_context() but file already exists in new context".PHP_EOL
+                              ."filename: $newfilename, filepath: $newfilepath, "
+                              ."component: $component, filearea: $filearea, "
+                              ."oldcontext:$oldcontextid, newcontext:$newcontextid, itemid: $itemid",
+                              DEBUG_DEVELOPER
+                    );
+
+                    // Delete the non-matching existing file.
+                    $selectwhere = " = '$itemidvalue'";
+                    $this->delete_area_files_select($newcontextid,
+                                                    $component,
+                                                    $filearea,
+                                                    $selectwhere,
+                                                    array('id' => $existingfile->get_id())
+                    );
+                    // Replace with the file which is moving areas.
+                    $this->create_file_from_storedfile($filerecord, $oldfile);
+                } else { // Skip if they are the same file, but add to count to delete from old area.
+                    debugging("Warning: Unexpected Identical Existing File (Skipping move):".PHP_EOL
+                              ."file_storage.php move_area_files_to_new_context() but file already exists in new context".PHP_EOL
+                              ."filename: $newfilename, filepath: $newfilepath, "
+                              ."component: $component, filearea: $filearea, "
+                              ."oldcontext:$oldcontextid, newcontext:$newcontextid, itemid: $itemid",
+                              DEBUG_DEVELOPER
+                    );
+                }
+            } else { // File doesn't exist in new context area, so just copy!
+                $this->create_file_from_storedfile($filerecord, $oldfile);
+            }
             $count += 1;
         }
 
