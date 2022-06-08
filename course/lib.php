@@ -1970,6 +1970,36 @@ function course_get_cm_edit_actions(cm_info $mod, $indent = -1, $sr = null) {
         );
     }
 
+    // Custom. Using callback extend_action_menu.
+    $functionname = 'extend_action_menu';
+    $plugins = get_plugin_list_with_function('mod', $functionname);
+
+    foreach ($plugins as $plugin => $componentname) {
+        // Continue if the plugin does not match the current mod_modname.
+        if ($plugin != "mod_$mod->modname") {
+            continue;
+        }
+
+        // Do the callback; retrieving an array of action_menu_link_secondary.
+        $customactions = component_callback($plugin, $functionname, [$mod->id], array());
+
+        // Whatever is returned must it be an array.
+        if (!is_array($customactions)) {
+            throw new \coding_exception('Expected array of action_menu_link_secondary.',
+                "Expected that method $functionname would return array.");
+        }
+
+        // Add the elements of the array to the $actions array.
+        foreach ($customactions as $key => $value) {
+            // Elements of the array must be action_menu_link_secondary.
+            if (!is_object($value) or !get_class($value) == 'action_menu_link_secondary') {
+                throw new \coding_exception('Expected object of type action_menu_link_secondary.',
+                'Expected that element would be of type action_menu_link_secondary.');
+            }
+            $actions[$key] = $value;
+        }
+    }
+
     // Delete.
     if ($hasmanageactivities) {
         $actions['delete'] = new action_menu_link_secondary(
