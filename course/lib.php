@@ -1810,6 +1810,42 @@ function course_get_cm_edit_actions(cm_info $mod, $indent = -1, $sr = null) {
         );
     }
 
+    // Custom. Using callback extend_action_menu.
+    $functionname = 'extend_action_menu';
+    $plugins = get_plugin_list_with_function('mod', $functionname, 'lib.php');
+
+    // Continue if the current plugin has a callback.
+    $plugin = "mod_$mod->modname";
+    if (!empty($plugins[$plugin])) {
+        // Do the callback; retrieving an array of action_menu_link_secondary.
+        $customactions = component_callback($plugin, $functionname, [$mod->id], []);
+
+        // Whatever is returned must it be an array.
+        if (!is_array($customactions)) {
+            throw new \coding_exception('Expected associative array of action_menu_link_secondary.',
+                "Expected that method $functionname would return associative array.");
+        }
+
+        // Add the elements of the array to the $actions array.
+        foreach ($customactions as $key => $value) {
+            // Elements of the array must be action_menu_link_secondary.
+            if (!is_object($value) || !get_class($value) == 'action_menu_link_secondary') {
+                throw new \coding_exception('Expected object of type action_menu_link_secondary.',
+                    'Expected that element would be of type action_menu_link_secondary.');
+            }
+
+            // Elements coming in to the array must be unique.
+            // Note that delete is a special case, this key is coming in after addition of custom keys.
+            if (isset($actions[$key]) || $key == 'delete') {
+                $keys = implode(', ', array_keys($actions));
+                throw new \coding_exception("The key for element is alread in use.",
+                    "You must change the key value '$key' to use anything but [$keys, delete].");
+            }
+
+            $actions[$key] = $value;
+        }
+    }
+
     // Delete.
     if ($hasmanageactivities) {
         $actions['delete'] = new action_menu_link_secondary(

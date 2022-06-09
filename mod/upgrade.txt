@@ -1,6 +1,10 @@
 This files describes API changes in /mod/* - activity modules,
 information provided here is intended especially for developers.
 
+=== 4.1 ===
+* Modules can extend the actions menu by adding a callback modulename_extend_action_menu. The callback should
+return a associative array of action_menu_link_secondary items.
+
 === 4.0 ===
 * A new API function introduced to handle custom completion logic. Refer to completion/upgrade.txt for additional information.
 * Modules that extend the settings navigation via '_extend_settings_navigation()' should use the get_page() method from
