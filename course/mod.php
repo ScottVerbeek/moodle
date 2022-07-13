@@ -96,8 +96,7 @@ if (!empty($add)) {
     $course = $DB->get_record('course', array('id' => $cm->course), '*', MUST_EXIST);
 
     require_login($course, false, $cm);
-    $modcontext = context_module::instance($cm->id);
-    require_capability('moodle/course:manageactivities', $modcontext);
+    course_can_delete_module($cm->id, true);
 
     $return = course_get_url($course, $cm->sectionnum, array('sr' => $sectionreturn));
 

@@ -2300,8 +2300,7 @@ class core_course_external extends external_api {
             }
 
             // Ensure they can delete this module.
-            $modcontext = context_module::instance($cm->id);
-            require_capability('moodle/course:manageactivities', $modcontext);
+            course_can_delete_module($cmid, true);
 
             // Delete the module.
             course_delete_module($cm->id);
@@ -3597,7 +3596,7 @@ class core_course_external extends external_api {
                 }
                 break;
             case 'delete':
-                require_capability('moodle/course:manageactivities', $modcontext);
+                course_can_delete_module($cm->id, true);
                 course_delete_module($cm->id, true);
                 return '';
             default:

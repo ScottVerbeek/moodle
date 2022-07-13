@@ -1475,6 +1475,59 @@ function course_update_section($course, $section, $data) {
 }
 
 /**
+ * Checks if the current user can delete given module.
+ *
+ * @param int $cmid
+ * @param bool $required When true, this method will require capabilities.
+ * @return bool
+ */
+function course_can_delete_module($cmid, $required = false) {
+    global $DB;
+    $cmcontext = context_module::instance($cmid);
+
+    if ($required) {
+        require_capability('moodle/course:manageactivities', $cmcontext);
+    } else if (!has_capability('moodle/course:manageactivities', $cmcontext)) {
+        return false;
+    }
+
+    // Activities can require additional requirements.
+    $functionname = 'extended_delete_capabilities';
+    $callbacks = get_plugin_list_with_function('mod', $functionname, 'lib.php');
+
+    if (empty($callbacks)) {
+        // Nothing to check.
+        return true;
+    }
+    if (!$cm = $DB->get_record('course_modules', array('id' => $cmid))) {
+        // No course module so it's okay to remove this one.
+        return true;
+    }
+    if (!$modulename = $DB->get_field('modules', 'name', array('id' => $cm->module))) {
+        // No module, can't retrieve the callback.
+        return true;
+    }
+    if (empty($callbacks[$plugin = "mod_$modulename"])) {
+        // No callback for this module.
+        return true;
+    }
+
+    // Retrieve the additional capabilities from the callback.
+    $caps = component_callback($plugin, $functionname, [$cm->module], []);
+
+    // Check each required capability.
+    foreach ($caps as $cap) {
+        if ($required) {
+            require_capability($cap, $cmcontext);
+        } else if (!has_capability($cap, $cmcontext)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
  * Checks if the current user can delete a section (if course format allows it and user has proper permissions).
  *
  * @param int|stdClass $course
@@ -1502,7 +1555,7 @@ function course_can_delete_section($course, $section) {
     $modinfo = get_fast_modinfo($course);
     if (!empty($modinfo->sections[$section])) {
         foreach ($modinfo->sections[$section] as $cmid) {
-            if (!has_capability('moodle/course:manageactivities', context_module::instance($cmid))) {
+            if (!course_can_delete_module($cmid)) {
                 return false;
             }
         }
@@ -1811,7 +1864,7 @@ function course_get_cm_edit_actions(cm_info $mod, $indent = -1, $sr = null) {
     }
 
     // Delete.
-    if ($hasmanageactivities) {
+    if (course_can_delete_module($mod->id)) {
         $actions['delete'] = new action_menu_link_secondary(
             new moodle_url($baseurl, array('delete' => $mod->id)),
             new pix_icon('t/delete', '', 'moodle', array('class' => 'iconsmall')),
