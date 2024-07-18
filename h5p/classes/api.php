@@ -619,11 +619,6 @@ class api {
         $component = array_shift($parts);
         $filearea = array_shift($parts);
 
-        // Ignore draft files, because they are considered temporary files, so shouldn't be displayed.
-        if ($filearea == 'draft') {
-            return false;
-        }
-
         // Get the context.
         try {
             list($context, $course, $cm) = get_context_info_array($contextid);
