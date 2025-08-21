@@ -113,7 +113,14 @@ if ($attemptobj->is_own_preview()) {
 $headtags = $attemptobj->get_html_head_contributions($page, $showall);
 $PAGE->set_title($attemptobj->review_page_title($page, $showall));
 $PAGE->set_heading($attemptobj->get_course()->fullname);
-$PAGE->activityheader->disable();
+if ($PAGE->pagelayout === 'secure') {
+    // Show the activity header (but only the name) in the secure layout on quiz pages.
+    $PAGE->activityheader->set_attrs([
+        'description' => '',
+    ]);
+} else {
+    $PAGE->activityheader->disable();
+}
 
 $summarydata = attempt_summary_information::create_for_attempt($attemptobj, $options, $page, $showall);
 
